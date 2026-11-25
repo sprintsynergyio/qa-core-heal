@@ -1,4 +1,24 @@
-# qa-core-heal
+<h1 align="center">qa-core-heal</h1>
+
+<p align="center">
+  <strong>Repair broken test locators, verified on the live page.</strong><br/>
+  <strong>Run • Classify • Probe • Propose • Apply • Re-run • Audit</strong><br/>
+  <sub>Playwright, Cypress and Selenium tests in JavaScript or TypeScript. Deterministic: no LLM, no API key. Every heal is re-tested and every refusal explains itself.</sub>
+</p>
+
+<p align="center">
+  <a href="https://github.com/sprintsynergyio/qa-core-heal/actions/workflows/ci.yml"><img src="https://github.com/sprintsynergyio/qa-core-heal/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://www.npmjs.com/package/qa-core-heal"><img src="https://img.shields.io/npm/v/qa-core-heal.svg" alt="npm version" /></a>
+  <a href="https://www.npmjs.com/package/qa-core-heal"><img src="https://img.shields.io/npm/dm/qa-core-heal.svg" alt="npm downloads" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license" /></a>
+  <img src="https://img.shields.io/badge/node-%3E%3D22.6-339933?logo=node.js&logoColor=white" alt="Node 22.6 or newer" />
+</p>
+
+<p align="center">
+  <a href="#quick-start">Quick Start</a> · <a href="#features">Features</a> · <a href="#how-it-works">How it works</a> · <a href="#modes-and-flags">Flags</a> · <a href="#configuration">Configuration</a> · <a href="https://www.npmjs.com/package/qa-core-heal">npm</a> · <a href="https://sprintsynergy.com">SprintSynergy</a>
+</p>
+
+---
 
 qa-core-heal runs your failing Playwright, Cypress, and Selenium tests, reads the failure evidence, and repairs broken locators. It refuses to guess: every heal is verified against the live page and re-tested, every refusal explains itself.
 
@@ -22,6 +42,39 @@ Apply 1 heal(s)? [y/N] y
 ```
 
 No LLM, no API key. The engine is deterministic: same page, same broken locator, same replacement, every time.
+
+<table>
+<tr>
+<td width="33%" valign="top">
+
+### Verified, not guessed
+
+A heal is proposed only when the candidate still carries the original element's identity, and it is kept only when the previously failing test passes on re-run. A failed re-run reverts the file byte for byte.
+
+</td>
+<td width="33%" valign="top">
+
+### Refusal over wrong heal
+
+Ambiguous matches, kind mismatches, deleted `.first()`/`.nth()` and non-locator failures are refused with a reason, so a wrong locator never turns a red test green.
+
+</td>
+<td width="33%" valign="top">
+
+### Fits your pipeline
+
+`--yes`, `--dry-run`, a byte-stable `--json` contract, exit codes for CI, an audit log, and a findings/results contract with qa-core-flaky. It never commits.
+
+</td>
+</tr>
+</table>
+
+<p align="center">
+  <img src="docs/demo.gif" alt="qa-core-heal in a terminal: the example project's tests fail, then heal proposes fixes in dry-run mode" width="100%" />
+  <br/><sub>Recorded on an earlier version with the example project in this repo. Today's output wording differs a little; run <code>npm run demo</code> for the current output.</sub>
+</p>
+
+---
 
 ## Quick Start
 
@@ -69,47 +122,48 @@ Run → classify → probe → propose → apply → re-run → audit. Only the 
 
 The page each test was on when it failed comes from the Playwright trace, so a locator that breaks three clicks deep heals on the page it actually broke on, not on your homepage. Base URL, routes, and page objects (imports followed recursively) are all resolved from your project as-is: your `playwright.config.ts` is imported the way Playwright imports it, `defineConfig`, env vars, `require("dotenv")` and all.
 
-## Authenticated Apps
+---
 
-An unauthenticated probe of a protected page gets redirected to your login screen. qa-core-heal detects that instead of probing the wrong page:
+## Features
 
-```text
-requested /accounts, landed on /login (redirected)
-the page may require authentication; pass --storage-state <path>
+### Healing
+
+- **Run-first by default:** the spec runs with Playwright first, and only tests that failed for locator reasons are healed, on the page they failed on (taken from the Playwright trace). `--scan` is the static alternative.
+- **The heal ladder:** role with accessible name, label, placeholder, text, alt, title, testid, then CSS/XPath, with a fuzzy stage for typo'd identifiers.
+- **Guards:** the kind guard, ambiguity refusal, same-element confirmation across fresh reads, and refusal of deleted positional disambiguators. See [How It Decides](#how-it-decides).
+- **Open shadow roots** are searched like light DOM.
+- **Page objects** are followed through imports, and your `playwright.config.ts` is loaded the way Playwright loads it.
+
+### Safety
+
+- **Verify and revert:** the previously failing tests are re-run after an apply. A heal whose re-run still fails is undone.
+- **Audit log:** every applied heal lands in `.qa-core/heal-log.jsonl` with a verified flag.
+- **No credentials read or stored:** it runs only the login function you name (`--auth-setup`) or uses a saved session (`--storage-state`). See [Authenticated Apps](#authenticated-apps).
+- **Never commits:** applying approved diffs to your working tree is the maximum action.
+
+### Frameworks and integrations
+
+- **Playwright, Cypress and Selenium** (Mocha) in JavaScript or TypeScript, detected from your files. See [Frameworks](#frameworks).
+- **Findings contract:** reads a findings file from qa-core-flaky and writes a results file back, with a patch file per proposal. See [The Findings and Results Contract](#the-findings-and-results-contract).
+- **Claude Code skill** in `skill/`. See [Use It as a Claude Code Skill](#use-it-as-a-claude-code-skill).
+
+---
+
+## How it works
+
+```
+  npx qa-core-heal tests/login.spec.ts
+        │
+  1. Run        the spec runs with Playwright; passing suites stop here ("Nothing to heal")
+  2. Classify   each failure: locator problem (from the error evidence) or not; non-locator failures are never healed
+  3. Probe      each failing locator is re-resolved on the page it failed on, through the heal ladder and guards
+  4. Propose    a diff per heal; ambiguous or unsafe cases are refused with a reason
+  5. Apply      after your y (or --yes); --dry-run never writes
+  6. Re-run     only the previously failing tests; a heal whose re-run fails is reverted
+  7. Audit      applied heals are appended to .qa-core/heal-log.jsonl
 ```
 
-Three ways up the ladder:
-
-**1. Point it at the login function your tests already use (recommended).**
-
-```sh
-npx qa-core-heal tests/accounts.spec.ts --auth-setup "utils/common.ts#login"
-```
-
-(The quotes matter in zsh, because `#` starts a comment otherwise.) The module loads with the same TypeScript machinery as your config, and `await login(page)` runs on a fresh page in the probing context, with your project's baseURL set, so relative `page.goto("/")` works exactly as in your tests. One login, many probes: the session lives in the probing context for the whole run. For every run, put it in `qa-core.config.json`:
-
-```json
-{ "authSetup": "utils/common.ts#login" }
-```
-
-A login that throws or hangs (60s default, `--auth-setup-timeout <seconds>`) fails the whole run loudly with `auth setup utils/common.ts#login failed: <error>`, never a silent unauthenticated probe. It deliberately does NOT parse or re-run your `beforeAll`/`beforeEach` hooks: setup code can seed data or trigger side effects, and only you can say what is safe to re-run.
-
-**2. Saved sessions: `--storage-state <path>`.**
-
-Playwright's storage-state file (or `auth.storageState` in qa-core.config.json). This is the right fit for CI and the standard save-auth pattern: a setup script that logs in once and writes `context.storageState({ path: '.auth/state.json' })`. With neither flag set, heal auto-detects: `use.storageState` from your playwright config, then `.auth/state.json` / `playwright/.auth/user.json` if present, announcing `using storage state from <path>`. That path is relative to the folder where you run heal when the file is inside it, for example `.auth\state.json` on Windows. Any other path in your home folder shows the home folder as `<home>`, so a terminal log or a screenshot does not show your username. When you run heal from a folder above your home folder, such as `C:\Users` or `/home`, a file in your home folder also starts with `<home>`. The same rule applies to every other console line that names a file, such as the file headers in the report and the `file error:` line, including the path inside the system error text. It also applies when you run heal from another drive on Windows. The `[verbose] child:` line shows the home folder as `<home>`. The results file and the `--json` output keep the paths they had before, and the `--debug` dump of a child run is printed as the child wrote it. Detection finding nothing just probes unauthenticated. When both are configured, the saved session is used first (it is fast and runs no user code), and an expired session automatically falls back to your login function (`saved session expired; falling back to auth setup`), never the reverse. Without an auth setup configured, an expired session is diagnosed, not papered over:
-
-```text
-storage state was applied but /accounts still redirected to /login; the saved
-session may be expired. Re-generate it and retry.
-```
-
-And when `--auth-setup` ran but the redirect still happens: `auth setup ran but /accounts still redirected to /login; the login function may have failed silently or the session did not persist`.
-
-**A login page at /.** SauceDemo's login page is the site root (`/`). Heal treats a redirect to `/` the same way it treats a redirect to `/login`, and it prints `the page may require authentication; pass --storage-state <path>`. A SauceDemo session lasts only a short time, so save a fresh login to `.auth/state.json` before the heal run. Heal auto-detects that file. Keep the session out of git (`.auth/` is already in `.gitignore`).
-
-**3. Security.**
-
-> The tool never reads or stores credentials. It executes only the login code you explicitly name, and nothing else in your setup files. Sessions stay in memory for the duration of the run. Logs and audit entries carry file paths, export names, and pass/fail results, never credentials, cookie values, or storage-state contents. Keep session files out of version control: add `.auth/` to your `.gitignore`.
+The rules behind steps 2 to 4 are below.
 
 ## How It Decides
 
@@ -154,6 +208,8 @@ re-resolved element differs: expected an element matching "search panel 42"
 ```
 
 **The principle: refusal over wrong heal.** A wrong locator that passes today is worse than a red test you can see. Every refusal states its reason (not found on which route, closest candidates below the confidence threshold, possibly state-dependent, redirected to login), so you always know what to do next.
+
+---
 
 ## Modes and Flags
 
@@ -200,6 +256,48 @@ re-resolved element differs: expected an element matching "search panel 42"
 | `--shadow-runs <n>` | scratch re-runs that must all pass before a findings proposal is verified (default 3, with `--findings`) |
 
 **The `--json` contract (schemaVersion 1).** The payload always carries `schemaVersion: 1`, a `verdicts` array (one entry per probed locator and per non-locator failure, each with `spec`, `testTitle`, `classification` (`locator` / `non-locator`), `message`, `healApplied`, `before`, `after`, `verified`), and a `summary` of `{ heals, refusals, nonLocator, errors }`, alongside the original per-locator fields. Errors also emit valid JSON with the failure story in `error`. schemaVersion 1 is the compatibility contract: existing fields will not change meaning or disappear within it; additions may appear. Exit codes are unchanged by `--json`.
+
+## Authenticated Apps
+
+An unauthenticated probe of a protected page gets redirected to your login screen. qa-core-heal detects that instead of probing the wrong page:
+
+```text
+requested /accounts, landed on /login (redirected)
+the page may require authentication; pass --storage-state <path>
+```
+
+Three ways up the ladder:
+
+**1. Point it at the login function your tests already use (recommended).**
+
+```sh
+npx qa-core-heal tests/accounts.spec.ts --auth-setup "utils/common.ts#login"
+```
+
+(The quotes matter in zsh, because `#` starts a comment otherwise.) The module loads with the same TypeScript machinery as your config, and `await login(page)` runs on a fresh page in the probing context, with your project's baseURL set, so relative `page.goto("/")` works exactly as in your tests. One login, many probes: the session lives in the probing context for the whole run. For every run, put it in `qa-core.config.json`:
+
+```json
+{ "authSetup": "utils/common.ts#login" }
+```
+
+A login that throws or hangs (60s default, `--auth-setup-timeout <seconds>`) fails the whole run loudly with `auth setup utils/common.ts#login failed: <error>`, never a silent unauthenticated probe. It deliberately does NOT parse or re-run your `beforeAll`/`beforeEach` hooks: setup code can seed data or trigger side effects, and only you can say what is safe to re-run.
+
+**2. Saved sessions: `--storage-state <path>`.**
+
+Playwright's storage-state file (or `auth.storageState` in qa-core.config.json). This is the right fit for CI and the standard save-auth pattern: a setup script that logs in once and writes `context.storageState({ path: '.auth/state.json' })`. With neither flag set, heal auto-detects: `use.storageState` from your playwright config, then `.auth/state.json` / `playwright/.auth/user.json` if present, announcing `using storage state from <path>`. That path is relative to the folder where you run heal when the file is inside it, for example `.auth\state.json` on Windows. Any other path in your home folder shows the home folder as `<home>`, so a terminal log or a screenshot does not show your username. When you run heal from a folder above your home folder, such as `C:\Users` or `/home`, a file in your home folder also starts with `<home>`. The same rule applies to every other console line that names a file, such as the file headers in the report and the `file error:` line, including the path inside the system error text. It also applies when you run heal from another drive on Windows. The `[verbose] child:` line shows the home folder as `<home>`. The results file and the `--json` output keep the paths they had before, and the `--debug` dump of a child run is printed as the child wrote it. Detection finding nothing just probes unauthenticated. When both are configured, the saved session is used first (it is fast and runs no user code), and an expired session automatically falls back to your login function (`saved session expired; falling back to auth setup`), never the reverse. Without an auth setup configured, an expired session is diagnosed, not papered over:
+
+```text
+storage state was applied but /accounts still redirected to /login; the saved
+session may be expired. Re-generate it and retry.
+```
+
+And when `--auth-setup` ran but the redirect still happens: `auth setup ran but /accounts still redirected to /login; the login function may have failed silently or the session did not persist`.
+
+**A login page at /.** SauceDemo's login page is the site root (`/`). Heal treats a redirect to `/` the same way it treats a redirect to `/login`, and it prints `the page may require authentication; pass --storage-state <path>`. A SauceDemo session lasts only a short time, so save a fresh login to `.auth/state.json` before the heal run. Heal auto-detects that file. Keep the session out of git (`.auth/` is already in `.gitignore`).
+
+**3. Security.**
+
+> The tool never reads or stores credentials. It executes only the login code you explicitly name, and nothing else in your setup files. Sessions stay in memory for the duration of the run. Logs and audit entries carry file paths, export names, and pass/fail results, never credentials, cookie values, or storage-state contents. Keep session files out of version control: add `.auth/` to your `.gitignore`.
 
 ## Frameworks
 
@@ -315,6 +413,22 @@ Exactly one test runs, in the first run and in the verify re-run. A title that m
 
 **Not in this version.** The rule-based timing and selector fixes.
 
+---
+
+## Configuration
+
+Zero config is the default. An optional `qa-core.config.json` in your repo root sets baseUrl, test dir, allowed locator levels, page objects, authSetup, and storage state; the full schema is in [`skill/references/config.md`](skill/references/config.md). `--config <file>` picks another file.
+
+```json
+{ "authSetup": "utils/common.ts#login" }
+```
+
+| Setting | Effect |
+| --- | --- |
+| `NO_COLOR` | disables ANSI colors, like `--no-color` |
+| `QA_CORE_HEAL_ASCII=1` / `=0` | forces plain ASCII report symbols, or keeps the symbols (see `--ascii`) |
+| `--settle-ms`, `--run-timeout`, `--auth-setup-timeout` | timing limits, listed in [Modes and Flags](#modes-and-flags) |
+
 ## Limitations
 
 Honesty about scope, so you are never surprised:
@@ -342,6 +456,16 @@ Measured on 16 public eval suites in this repo (168 locators, 104 deliberately b
 
 Run them yourself: `npm run evals`. The harness exists so that every real-world bug becomes a pinned case: each refusal message, classification rule, and auth behavior above is asserted by a fixture, and the suite fails loudly if any of it regresses.
 
+---
+
+## Platform notes
+
+- **Node 22.6 or later.** It is needed to read TypeScript Playwright configs. CI runs on Ubuntu with Node 22 and 24, with separate Playwright, Cypress and Selenium jobs.
+- **Playwright** `>=1.49.0` is a required peer dependency (`@playwright/test` is optional, at the same range). Tested at 1.49.0 and 1.64.1. For a Playwright prerelease, install with `npm install --legacy-peer-deps`.
+- **Browsers:** `npx playwright install chromium` on macOS and Windows. On Linux, `npx playwright install --with-deps chromium` also installs Chromium's system libraries.
+- **Windows:** report symbols are plain ASCII by default, except in an interactive Windows Terminal, VS Code or ConEmu console. Child runs are stopped with `taskkill /T /F`. In Windows PowerShell, `npx` runs through `npx.ps1`, so `$LASTEXITCODE` shows 1 after Ctrl+C; run `node node_modules/qa-core-heal/dist/cli.js` to see 130.
+- **zsh:** quote `--auth-setup "file#export"`, or use the `file:export` form.
+
 ## From Source
 
 ```sh
@@ -361,8 +485,34 @@ Use `node dist/cli.js` in place of `npx qa-core-heal` from a checkout (run `npm 
 
 The `skill/` folder makes heal a Claude Code skill: Claude detects locator-class failures in your suite, runs heal in dry-run, presents the consolidated diff, applies only what you approve, and never commits. Copy `skill/` into your skills directory or install from the release.
 
-## License and Contributing
+---
 
-MIT. Issues and eval-suite contributions welcome, especially broken-locator patterns from real projects that heal should handle or honestly refuse.
+## Documentation
 
-Built by [SprintSynergy](https://sprintsynergy.com) and maintained by [Muhammad Usman](https://linkedin.com/in/sdet-muhammadusman).
+| Doc | For |
+|---|---|
+| [CHANGELOG.md](CHANGELOG.md) | release notes |
+| [skill/references/config.md](skill/references/config.md) | the `qa-core.config.json` schema |
+| [skill/references/locator-strategy.md](skill/references/locator-strategy.md) | the locator strategy |
+| [skill/SKILL.md](skill/SKILL.md) | the Claude Code skill |
+| [schemas/](schemas/) | JSON Schemas for the findings and results contract |
+
+## Contributing
+
+Found a bug or have an idea? Open an issue. We review pull requests case by case.
+
+Eval-suite contributions are especially useful: broken-locator patterns from real projects that heal should handle or honestly refuse.
+
+<a id="license-and-contributing"></a>
+
+## License
+
+MIT. See [LICENSE](LICENSE).
+
+---
+
+<p align="center">
+  <strong>Built by <a href="https://sprintsynergy.com">SprintSynergy</a></strong><br/>
+  <sub>SprintSynergy is an AI-based QA automation company: AI testing agents plus our QA team.</sub><br/>
+  <sub>Maintained by <a href="https://linkedin.com/in/sdet-muhammadusman">Muhammad Usman</a>.</sub>
+</p>
